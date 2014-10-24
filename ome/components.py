@@ -4,7 +4,9 @@ from sqlalchemy.orm import relationship, backref
 from sqlalchemy import Table, MetaData, create_engine, Column, Integer, \
     String, Float, ForeignKey, select, Boolean
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy.schema import UniqueConstraint,PrimaryKeyConstraint
+from sqlalchemy.schema import UniqueConstraint, PrimaryKeyConstraint
+from sqlalchemy.ext.associationproxy import association_proxy
+from sqlalchemy.orm.collections import attribute_mapped_collection
 
 import simplejson as json
 
@@ -56,19 +58,23 @@ class ComplexComposition(Base):
     __tablename__ = 'complex_composition'
 
     complex_id = Column(Integer, ForeignKey('complex.id'), primary_key=True)
-    component_id = Column(Integer, ForeignKey('component.id'), primary_key=True)
+    component_id = Column(Integer, ForeignKey('component.id'),
+                          primary_key=True)
     stoichiometry = Column(Integer)
 
-    __table_args__ = (UniqueConstraint('complex_id','component_id'),{})
+    complex = relationship(
+        "Complex",
+        primaryjoin="ComplexComposition.complex_id == Complex.id")
+    component = relationship(Component)
+
+    __table_args__ = (UniqueConstraint('complex_id', 'component_id'), {})
 
     def __init__(self, complex_id, component_id, stoichiometry):
         self.complex_id = complex_id
         self.component_id = component_id
         self.stoichiometry = stoichiometry
 
-    def __repr__(self):
-        return "Complex (#%d):  %s->%s(#%d)" % \
-            (self.complex_id, self.complex_name, self.component_name, self.component_id)
+
 class Complex(Component):
     __tablename__ = 'complex'
 
@@ -77,9 +83,15 @@ class Complex(Component):
     id = Column(Integer, ForeignKey('component.id'), primary_key=True)
 
     long_name = Column(String(200))
-    children = relationship("Component", secondary="complex_composition",\
-                            primaryjoin = id == ComplexComposition.complex_id,\
+    children = relationship("Component", secondary="complex_composition",
+                            primaryjoin=id == ComplexComposition.complex_id,
                             backref="parent")
+
+    _complex_composition = relationship(
+        ComplexComposition, primaryjoin=id == ComplexComposition.complex_id,
+        collection_class=attribute_mapped_collection("component"))
+
+    stoichiometry = association_proxy("_complex_composition", "stoichiometry")
 
     @hybrid_property
     def all_children(self):
