@@ -66,7 +66,9 @@ class ComplexComposition(Base):
         self.component_id = component_id
         self.stoichiometry = stoichiometry
 
-
+    def __repr__(self):
+        return "Complex (#%d):  %s->%s(#%d)" % \
+            (self.complex_id, self.complex_name, self.component_name, self.component_id)
 class Complex(Component):
     __tablename__ = 'complex'
 
@@ -102,8 +104,8 @@ class Complex(Component):
 
 
     def __repr__(self):
-        return "Complex (#%d):  %s" % \
-            (self.id, self.long_name)
+        return "Complex (#%d):  %s/%s" % \
+            (self.id, self.name, self.long_name)
 
 
     def __init__(self, name, long_name=None):
@@ -238,8 +240,8 @@ class Protein(Component):
         self.long_name = long_name
 
     def __repr__(self):
-        return "Protein (#%d, %s)" % \
-            (self.id, self.long_name)
+        return "Protein (#%d(%s), %s)" % \
+            (self.id, self.name, self.long_name)
 
 
 class Metabolite(Component):
@@ -303,10 +305,4 @@ class GeneGroup(Base):
 
     def __init__(self, name):
         self.name = name
-
-
-
-
-
-
 

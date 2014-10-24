@@ -28,8 +28,7 @@ if __name__ == "__main__":
 
 
     for genbank_file in os.listdir(settings.data_directory+'annotation/genbank'):
-        #if genbank_file not in ['NC_000913.2.gb']: continue
-
+        if genbank_file not in ['NC_000913.2.gb']: continue
         component_loading.load_genome(genbank_file, base, components, debug=False)
 
 
@@ -63,12 +62,13 @@ if __name__ == "__main__":
         experiment_sets = dataset_loading.query_experiment_sets()
         dataset_loading.load_experiment_sets(experiment_sets)
 
-
+        """
         for chromosome in genome.chromosomes:
             component_loading.load_metacyc_proteins(base, components, chromosome)
             component_loading.load_metacyc_bindsites(base, components, chromosome)
-            component_loading.load_metacyc_transcription_units(base, components, chromosome)
-
+            component_loading.load_metacyc_protein_cplxs(base, components, chromosome)
+            #component_loading.load_metacyc_transcription_units(base, components, chromosome)
+        """
         old_gff_file = settings.data_directory+'/annotation/NC_000913.2_old.gff'
 
         #dataset_loading.run_cuffquant(base, datasets, genome, group_name='crp', debug=False)

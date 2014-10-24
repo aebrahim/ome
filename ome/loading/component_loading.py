@@ -1,33 +1,38 @@
 import sys, os, math, re
+from os.path import join
 from warnings import warn
 
 from sqlalchemy import text, or_, and_, func
 
 from ome import settings, timing
 
+metacyc_dir = join(settings.data_directory, "annotation", "metacyc",
+                   "17.1", "data", "")
+
 
 def getAttributes(file_name):
-    file = open(settings.data_directory + '/annotation/MetaCyc/17.1/data/'+file_name,'r')
-    atts = []
-    attflag = 0
-    for line in file.readlines():
-        if line[0] != '#': return atts
-        if line[0:13] == '# Attributes:':
-            attflag = 1
-            continue
-
-        if attflag == 1 and line != '#\n': atts.append(line.lstrip('#    ').rstrip('\n'))
+    with open(join(metacyc_dir, file_name), 'r') as infile:
+        atts = []
+        attflag = 0
+        for line in infile.readlines():
+            if line[0] != '#':
+                return atts
+            if line[0:13] == '# Attributes:':
+                attflag = 1
+                continue
+            if attflag == 1 and line != '#\n':
+                atts.append(line.lstrip('#    ').rstrip('\n'))
 
 
 def parse_metacyc_dat(file_name):
-    file = open(settings.data_directory + '/annotation/MetaCyc/17.1/data/'+file_name,'r')
+    file = open(join(metacyc_dir, file_name), 'r')
     master_dict = {}
     attributes = {}
     unique_id = ''
 
     for line in file.readlines():
-        if line[0] == '#': continue
-
+        if line[0] == '#':
+            continue
         vals = line.rstrip('\n').split(" - ")
 
         if vals[0] == 'UNIQUE-ID':
@@ -39,14 +44,17 @@ def parse_metacyc_dat(file_name):
             tmp.append(vals[1])
             attributes[vals[0]] = tmp
         except:
-            try: attributes[vals[0]] = [vals[1]]
-            except: None
+            try:
+                attributes[vals[0]] = [vals[1]]
+            except:
+                None
+    file.close()
 
     return master_dict
 
 
 def parse_metacyc_col(file_name):
-    file = open(settings.data_directory + '/annotation/MetaCyc/17.1/data/'+file_name,'r')
+    file = open(join(metacyc_dir, file_name), 'r')
 
     master_dict = {}
     attributes = {}
@@ -75,12 +83,12 @@ def parse_metacyc_col(file_name):
 
         master_dict[vals[0]] = attributes
         attributes = {}
-
+    file.close()
     return master_dict
 
 
 def parse_metacyc_fsa(file_name):
-    file = open(settings.data_directory + '/annotation/MetaCyc/17.1/data/'+file_name,'r')
+    file = open(join(metacyc_dir, file_name), 'r')
     id,seq = '',''
     seq_dict = {}
     for line in file.readlines():
@@ -89,6 +97,7 @@ def parse_metacyc_fsa(file_name):
             seq = ''
             id = line.split()[0].lstrip('>')
         else: seq+=line.rstrip('\n')
+    file.close()
     return seq_dict
 
 
@@ -221,46 +230,97 @@ def get_or_create_metacyc_ligand(session, base, components, ligand_entry):
 
 
 def get_or_create_metacyc_protein_complex(session, base, components, genome, protein_complex_entry):
-    #if protein_complex_entry['UNIQUE-ID'][0] == 'CPLX0-226': print protein_complex_entry
-    #print protein_complex_entry['UNIQUE-ID'][0]
-    vals = scrub_metacyc_entry(protein_complex_entry,extra_args=['COMMON-NAME','COMPONENTS'])
-    if vals is None: return None
+    #if protein_complex_entry['UNIQUE-ID'][0] == 'CPLX0-7462':
+        #print protein_complex_entry['UNIQUE-ID'][0]
 
-    protein_complex = session.get_or_create(components.Complex, name=vals['UNIQUE-ID'][0], long_name=vals['COMMON-NAME'][0])
+        #Colton Additions here to account for stoichiometry of subunits
 
-    for component in vals['COMPONENTS']:
 
-        component_vals = None
-        complex_component = None
+    vals = scrub_metacyc_entry(protein_complex_entry, extra_args= ['COMPONENTS','^COEFFICIENT'])
+    if vals is None:
+        vals = scrub_metacyc_entry(protein_complex_entry,extra_args=['COMPONENTS'])
+        if vals is None:
+            return None
 
-        if component in metacyc_proteins:
-            component_vals = scrub_metacyc_entry(metacyc_proteins[component])
+    long_name_vals = scrub_metacyc_entry(protein_complex_entry, extra_args= ['COMMON-NAME'])
+    if long_name_vals is None:
+        long_name_vals={}
+        long_name_vals['COMMON-NAME'] = ['No Long Name']
 
-        elif component in metacyc_ligands:
-            component_vals = scrub_metacyc_entry(metacyc_ligands[component])
+    protein_complex = session.get_or_create(components.Complex, name=vals['UNIQUE-ID'][0], long_name=long_name_vals['COMMON-NAME'][0])
 
-        elif component in metacyc_protein_cplxs:
-            component_vals = scrub_metacyc_entry(metacyc_protein_cplxs[component])
+    if '^COEFFICIENT' in vals:
+        for component, stoich in zip(vals['COMPONENTS'], vals['^COEFFICIENT']):
 
-        if component_vals is None: continue
+            component_vals = None
+            complex_component = None
 
-        if 'Protein-Complexes' in component_vals['TYPES']:
-            complex_component = get_or_create_metacyc_protein_complex(session, base, components, genome, metacyc_proteins[component])
+            if component in metacyc_proteins:
+                component_vals = scrub_metacyc_entry(metacyc_proteins[component])
 
-        elif 'Protein-Small-Molecule-Complexes' in component_vals['TYPES']:
-            complex_component = get_or_create_metacyc_protein_complex(session, base, components, genome, metacyc_protein_cplxs[component])
+            elif component in metacyc_ligands:
+                component_vals = scrub_metacyc_entry(metacyc_ligands[component])
 
-        elif 'Polypeptides' in component_vals['TYPES']:
-            complex_component = get_protein_with_metacyc(session, base, components, genome, metacyc_proteins[component])
+            elif component in metacyc_protein_cplxs:
+                component_vals = scrub_metacyc_entry(metacyc_protein_cplxs[component])
 
-        elif 'Compounds' in component_vals['TYPES']:
-            complex_component = get_or_create_metacyc_ligand(session, base, components, metacyc_ligands[component])
+            if component_vals is None: continue
 
-        if complex_component is None: continue
+            if 'Protein-Complexes' in component_vals['TYPES']:
+                complex_component = get_or_create_metacyc_protein_complex(session, base, components, genome, metacyc_proteins[component])
 
-        session.get_or_create(components.ComplexComposition, complex_id=protein_complex.id,\
-                                                                 component_id=complex_component.id,\
-                                                                 stoichiometry=1.)
+            elif 'Protein-Small-Molecule-Complexes' in component_vals['TYPES']:
+                complex_component = get_or_create_metacyc_protein_complex(session, base, components, genome, metacyc_protein_cplxs[component])
+
+            elif 'Polypeptides' in component_vals['TYPES']:
+                complex_component = get_protein_with_metacyc(session, base, components, genome, metacyc_proteins[component])
+
+            elif 'Compounds' in component_vals['TYPES']:
+                complex_component = get_or_create_metacyc_ligand(session, base, components, metacyc_ligands[component])
+
+            if complex_component is None: continue
+
+            session.get_or_create(components.ComplexComposition, complex_id=protein_complex.id,\
+                                                                     #complex_name=vals['UNIQUE-ID'][0],\
+                                                                     component_id=complex_component.id,\
+                                                                     #component_name=component_vals['UNIQUE-ID'][0],\
+                                                                     stoichiometry=stoich)
+    else:
+        for component in vals['COMPONENTS']:
+
+            component_vals = None
+            complex_component = None
+
+            if component in metacyc_proteins:
+                component_vals = scrub_metacyc_entry(metacyc_proteins[component])
+
+            elif component in metacyc_ligands:
+                component_vals = scrub_metacyc_entry(metacyc_ligands[component])
+
+            elif component in metacyc_protein_cplxs:
+                component_vals = scrub_metacyc_entry(metacyc_protein_cplxs[component])
+
+            if component_vals is None: continue
+
+            if 'Protein-Complexes' in component_vals['TYPES']:
+                complex_component = get_or_create_metacyc_protein_complex(session, base, components, genome, metacyc_proteins[component])
+
+            elif 'Protein-Small-Molecule-Complexes' in component_vals['TYPES']:
+                complex_component = get_or_create_metacyc_protein_complex(session, base, components, genome, metacyc_protein_cplxs[component])
+
+            elif 'Polypeptides' in component_vals['TYPES']:
+                complex_component = get_protein_with_metacyc(session, base, components, genome, metacyc_proteins[component])
+
+            elif 'Compounds' in component_vals['TYPES']:
+                complex_component = get_or_create_metacyc_ligand(session, base, components, metacyc_ligands[component])
+
+            if complex_component is None: continue
+
+            session.get_or_create(components.ComplexComposition, complex_id=protein_complex.id,
+                                                                     #complex_name=vals['UNIQUE-ID'][0],
+                                                                     component_id=complex_component.id,
+                                                                     #component_name=component_vals['UNIQUE-ID'][0],
+                                                                     stoichiometry=1.)
     return protein_complex
 
 
@@ -478,7 +538,7 @@ def load_metacyc_proteins(base, components, genome):
     session = base.Session()
 
     for unique_id,entry in metacyc_proteins.iteritems():
-
+    #if unique_id == 'CPLX0-7462' or unique_id == 'EG11234-MONOMER':
         vals = scrub_metacyc_entry(entry)
         if vals is None: continue
 
@@ -500,7 +560,7 @@ def load_metacyc_protein_cplxs(base, components, genome):
         if vals is None: continue
 
         if 'Protein-Complexes' or 'Protein-Small-Molecule-Complexes' in vals['TYPES']:
-            get_or_create_metacyc_protein_complex(session, base, components, entry)
+            get_or_create_metacyc_protein_complex(session, base, components, genome, entry)
 
 
 
@@ -564,11 +624,15 @@ def load_metacyc_bindsites(base, components, chromosome):
             tf_binding_complex = session.get_or_create(components.Complex, name=vals['UNIQUE-ID'][0])
 
             session.get_or_create(components.ComplexComposition, complex_id=tf_binding_complex.id,\
+                                                                     #complex_name=vals['UNIQUE-ID'][0],\
                                                                      component_id=regulator.id,\
+                                                                     #component_name=vals['REGULATOR'][0],\
                                                                      stoichiometry=1.)
 
             session.get_or_create(components.ComplexComposition, complex_id=tf_binding_complex.id,\
+                                                                     #complex_name=vals['UNIQUE-ID'][0],\
                                                                      component_id=binding_site.id,\
+                                                                     #component_name=vals['ASSOCIATED-BINDING-SITE'][0],\
                                                                      stoichiometry=1.)
 
 
@@ -699,5 +763,7 @@ try:
     metacyc_ligands = parse_metacyc_dat('compounds.dat')
     metacyc_protein_cplxs = parse_metacyc_dat('protligandcplxes.dat')
     metacyc_tus = parse_metacyc_dat('transunits.dat')
-except: None
-
+except IOError as e:
+    warn("Filename '%s' not found" % e.filename)
+except Exception as e:
+    warn("Error: " + repr(e))
